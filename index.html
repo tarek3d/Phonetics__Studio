@@ -571,7 +571,9 @@ body::before,body.studio-nav-open::before{content:none!important;pointer-events:
  body.studio-nav-open{overflow:hidden!important}
 }
 </style>
-</head>
+<style>
+.review-panel{background:var(--studio-panel,#151515);border:1px solid var(--studio-line,#333);border-radius:16px;padding:clamp(12px,2vw,22px);color:var(--studio-text,#eee);display:grid;gap:12px;overflow-wrap:anywhere}.review-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;font-weight:800}.review-panel.correct .review-head{color:#34d399}.review-panel.partial .review-head{color:#fbbf24}.review-panel.wrong .review-head{color:#fb7185}.review-head small,.review-answers small{color:var(--studio-muted,#aaa);font-size:12px}.review-answers{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.review-answers>div,.review-edit,.review-note{border:1px solid var(--studio-line,#333);border-radius:10px;padding:10px;background:var(--studio-bg,#090909)}.review-answers strong{display:block;font-size:clamp(15px,2vw,21px);margin-top:4px}.review-body{display:grid;gap:9px;font-size:14px;line-height:1.6}.review-body h4{font-weight:800;font-size:15px}.review-edits{display:grid;gap:6px}.review-edit{border-inline-start:3px solid #fb7185}.review-edit.match{border-inline-start-color:#34d399}.review-edit p{font-size:13px;color:var(--studio-muted,#aaa)}.review-pron{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.review-pron button,.review-next{border-radius:9px;padding:8px 12px;background:#4f46e5;color:white;font-weight:700;min-height:40px}.review-next{justify-self:end}.review-body details summary{cursor:pointer;font-weight:700;padding:8px 0}.review-option-correct{border:2px solid #10b981!important;background:#10b98120!important}.review-option-wrong{border:2px solid #f43f5e!important;background:#f43f5e20!important}body.light-mode .review-panel.correct .review-head{color:#047857}body.light-mode .review-panel.partial .review-head{color:#92400e}body.light-mode .review-panel.wrong .review-head{color:#be123c}@media(max-width:420px){.review-panel{padding:10px}.review-body{font-size:13px}.review-next{width:100%}}
+</style></head>
 <body class="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-indigo-500 selection:text-white">
 
     <!-- Top Header & Navigation -->
@@ -4142,30 +4144,11 @@ function renderSec1() {
             updateSec1InputDisplay();
         }
 
-        function evaluateSec1Attempt(w, userIpa) {
-            const ukTokens = w.tokens;
-            const usTokens = tokenizeIPA(w.usIpa || w.ipa);
-            const userTokens = tokenizeIPA(userIpa);
-
-            if (userIpa === w.ipa || userIpa === w.usIpa) {
-                return { status: "correct", targetTokens: userIpa === w.usIpa ? usTokens : ukTokens, matchedCount: ukTokens.length };
-            }
-
-            // Compare position-by-position against both UK and US token arrays and pick the best match
-            let ukMatches = 0;
-            ukTokens.forEach((tok, i) => { if (userTokens[i] === tok) ukMatches++; });
-
-            let usMatches = 0;
-            usTokens.forEach((tok, i) => { if (userTokens[i] === tok) usMatches++; });
-
-            const useUs = (usMatches > ukMatches);
-            const targetTokens = useUs ? usTokens : ukTokens;
-            const matchedCount = useUs ? usMatches : ukMatches;
-
-            // Strictly Partial ONLY if at least 1 position matched AND not all positions matched
-            const status = (matchedCount > 0 && matchedCount < targetTokens.length) ? "partial" : "wrong";
-            return { status, targetTokens, matchedCount };
-        }
+        function evaluateSec1Attempt(w,userIpa){
+ const u=reviewTokens(userIpa), candidates=[['UK',reviewTokens(w.ipa)],['US',reviewTokens(w.usIpa||w.ipa)]];
+ const ranked=candidates.map(([accent,targetTokens])=>{const edits=reviewAlign(targetTokens,u);return {accent,targetTokens,edits,matchedCount:edits.filter(x=>x.kind==='match').length,cost:edits.filter(x=>x.kind!=='match').length};}).sort((a,b)=>a.cost-b.cost||b.matchedCount-a.matchedCount);
+ const best=ranked[0];return {...best,status:best.cost===0?'correct':best.matchedCount?'partial':'wrong'};
+}
 
         function submitSec1() {
             const w = getCurrentWord("sec1");
@@ -4189,132 +4172,11 @@ function renderSec1() {
             speakText(w.word, "en-GB");
         }
 
-        function renderSec1Feedback(w, userIpa, statusOrBool) {
-            const evalRes = evaluateSec1Attempt(w, userIpa);
-            const status = evalRes.status;
-            const targetTokens = evalRes.targetTokens;
-            const userTokens = tokenizeIPA(userIpa);
-
-            const box = document.getElementById("sec1-feedback-box");
-            box.classList.remove("hidden");
-
-            const rightParts = [];
-            const wrongParts = [];
-
-            const comparisonHtml = targetTokens.map((tok, i) => {
-                const uTok = userTokens[i];
-                const match = (uTok === tok);
-                const meta = PHONEME_DATA[tok] || { desc: "Standard IPA phoneme", ex: w.word, cat: "phoneme" };
-                const uMeta = uTok ? PHONEME_DATA[uTok] : null;
-
-                let whyText = "";
-                if (match) {
-                    whyText = `✅ Correct Part: You chose /${tok}/, which is right because sound #${i + 1} in "${w.word}" is the ${meta.voice ? meta.voice.toLowerCase() + ' ' + meta.place.toLowerCase() + ' ' + meta.manner.toLowerCase() : (meta.type || 'sound')} (${meta.desc})`;
-                    rightParts.push(`Sound #${i + 1} (/${tok}/): Correct — matches the ${meta.voice ? meta.voice.toLowerCase() + ' ' + meta.place.toLowerCase() + ' ' + meta.manner.toLowerCase() : (meta.type || 'sound')} in "${w.word}".`);
-                } else if (!uTok) {
-                    whyText = `❌ Missing Sound: You omitted sound #${i + 1} (/${tok}/). "${w.word}" requires /${tok}/ (${meta.desc}).`;
-                    wrongParts.push(`Sound #${i + 1}: Missing — you left out /${tok}/ (${meta.desc}).`);
-                } else {
-                    const uDesc = uMeta ? `/${uTok}/ is a ${uMeta.voice ? uMeta.voice.toLowerCase() + ' ' + uMeta.place.toLowerCase() + ' ' + uMeta.manner.toLowerCase() : (uMeta.type || 'sound')} (as in "${uMeta.ex}")` : `/${uTok}/`;
-                    const tDesc = `/${tok}/ is a ${meta.voice ? meta.voice.toLowerCase() + ' ' + meta.place.toLowerCase() + ' ' + meta.manner.toLowerCase() : (meta.type || 'sound')} (as in "${meta.ex}")`;
-                    whyText = `❌ Why /${uTok}/ is wrong here: ${uDesc}, whereas "${w.word}" uses ${tDesc}.`;
-                    wrongParts.push(`Sound #${i + 1}: You wrote /${uTok}/ instead of /${tok}/ — ${uDesc}, while "${w.word}" requires ${tDesc}.`);
-                }
-
-                return `
-                    <div class="p-3.5 rounded-xl bg-slate-950 border ${match ? 'border-emerald-500/50' : 'border-rose-500/50'} space-y-1.5">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs font-bold text-slate-400">Sound #${i + 1}</span>
-                            <span class="text-xs font-bold ${match ? 'text-emerald-400' : 'text-rose-400'}">
-                                ${match ? '<i class="fa-solid fa-check"></i> Correct Part' : `<i class="fa-solid fa-xmark"></i> You wrote: /${uTok || '∅'}/`}
-                            </span>
-                        </div>
-                        <div class="ipa-text text-xl font-extrabold text-white">Target: /${tok}/ <span class="text-xs font-normal text-indigo-300">(as in "${meta.ex}")</span></div>
-                        <p class="text-[11px] ${match ? 'text-emerald-300' : 'text-rose-300'} font-semibold leading-relaxed">${whyText}</p>
-                    </div>
-                `;
-            }).join("");
-
-            if (userTokens.length > targetTokens.length) {
-                const extra = userTokens.slice(targetTokens.length).map(s => `/${s}/`).join(", ");
-                wrongParts.push(`Extra Sound(s): You added ${extra} at the end, but "${w.word}" only has ${targetTokens.length} phonemes (/${w.ipa}/).`);
-            }
-
-            const bannerCls = status === "correct"
-                ? "bg-emerald-950/40 border-emerald-500/50 text-emerald-300"
-                : (status === "partial"
-                    ? "bg-amber-950 border-amber-500/60 text-amber-300"
-                    : "bg-rose-950/40 border-rose-500/50 text-rose-300");
-
-            const iconCls = status === "correct"
-                ? "bg-emerald-500 text-slate-950 fa-check"
-                : (status === "partial"
-                    ? "bg-amber-500 text-slate-950 fa-circle-half-stroke"
-                    : "bg-rose-500 text-white keep-white-text fa-xmark");
-
-            const titleText = status === "correct"
-                ? "Excellent! 100% Correct Phonetic Transcription!"
-                : (status === "partial"
-                    ? `Partially Correct (${rightParts.length} of ${targetTokens.length} Sounds Right) — See What's Right & What's Wrong Below`
-                    : "Incorrect (0 Sounds Matched) — Review the Phoneme Breakdown Below");
-
-            let summaryBoxHtml = "";
-            if (status === "partial") {
-                summaryBoxHtml = `
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                        <div class="p-3.5 rounded-xl bg-slate-950 border border-emerald-500/40 space-y-1.5">
-                            <div class="text-xs font-extrabold text-emerald-400 flex items-center gap-1.5">
-                                <i class="fa-solid fa-circle-check"></i> Why the Correct Part is Right (ليه الجزء ده صح):
-                            </div>
-                            <ul class="text-xs text-slate-200 space-y-1 list-disc list-inside">${rightParts.map(r => `<li>${r}</li>`).join("")}</ul>
-                        </div>
-                        <div class="p-3.5 rounded-xl bg-slate-950 border border-rose-500/40 space-y-1.5">
-                            <div class="text-xs font-extrabold text-rose-400 flex items-center gap-1.5">
-                                <i class="fa-solid fa-circle-xmark"></i> Why the Other Part is Wrong (ليه الجزء ده غلط):
-                            </div>
-                            <ul class="text-xs text-slate-200 space-y-1 list-disc list-inside">${wrongParts.map(wr => `<li>${wr}</li>`).join("")}</ul>
-                        </div>
-                    </div>
-                `;
-            } else if (status === "wrong") {
-                summaryBoxHtml = `
-                    <div class="p-3.5 rounded-xl bg-slate-950 border border-rose-500/40 space-y-1.5">
-                        <div class="text-xs font-extrabold text-rose-400 flex items-center gap-1.5">
-                            <i class="fa-solid fa-circle-xmark"></i> Why Your Answer is Wrong (ليه الإجابة كلها غلط):
-                        </div>
-                        <ul class="text-xs text-slate-200 space-y-1 list-disc list-inside">${wrongParts.map(wr => `<li>${wr}</li>`).join("")}</ul>
-                    </div>
-                `;
-            }
-
-            box.innerHTML = `
-                <div class="rounded-2xl border p-6 shadow-xl space-y-4 ${bannerCls}">
-                    <div class="flex flex-wrap items-center justify-between gap-4">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xl font-bold ${iconCls.split(' ').slice(0,2).join(' ')}">
-                                <i class="fa-solid ${iconCls.split(' ').slice(2).join(' ')}"></i>
-                            </div>
-                            <div>
-                                <h4 class="text-lg font-extrabold text-white">${titleText}</h4>
-                                <p class="text-xs text-slate-300">
-                                    Word: <strong class="text-white">${w.word}</strong> • Your Answer: <span class="ipa-text font-bold">/${userIpa}/</span> • Official UK IPA: <span class="ipa-text font-bold text-emerald-300">/${w.ipa}/</span>
-                                    ${w.usIpa !== w.ipa ? ` • US IPA: <span class="ipa-text font-bold text-sky-300">/${w.usIpa}/</span>` : ''}
-                                </p>
-                            </div>
-                        </div>
-                        <button onclick="navigateWord('sec1', 1)" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white keep-white-text text-xs font-extrabold flex items-center gap-1.5 shadow">
-                            Next Word <i class="fa-solid fa-arrow-right"></i>
-                        </button>
-                    </div>
-
-                    ${summaryBoxHtml}
-
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
-                        ${comparisonHtml}
-                    </div>
-                </div>
-            `;
-        }
+        function renderSec1Feedback(w,userIpa){
+ const r=evaluateSec1Attempt(w,userIpa), errors=r.edits.filter(x=>x.kind!=='match');
+ reviewShow('sec1-feedback-box',r.status,'Phonetic transcription',userIpa?'/'+userIpa+'/':'—',`/${r.accent==='US'?(w.usIpa||w.ipa):w.ipa}/ (${r.accent})`,
+ `<p>Matched ${r.matchedCount} of ${r.targetTokens.length} target sounds. ${errors.length?errors.length+' sound edit(s) needed.':'All target sounds match.'} Stress marks are not graded in this mode.</p>${reviewPronunciations(w)}${errors.length?reviewRows(errors,true):''}<details><summary>Full sound breakdown (${r.targetTokens.length} sounds)</summary>${reviewRows(r.edits,true)}</details><p class="review-note">Listen to the word, then compare each sound rather than each written letter.</p>`,"navigateWord('sec1',1)");
+}
 
         /* =====================================================================
            8. SECTION 2 LOGIC (IPA SYMBOLS -> ENGLISH WORD)
@@ -4408,22 +4270,11 @@ function renderSec1() {
             box.classList.toggle("hidden");
         }
 
-        function evaluateSec2Attempt(w, userWord) {
-            const uClean = (userWord || "").trim().toLowerCase();
-            const matchingWords = WORDS_DB.filter(item => item.ipa === w.ipa).map(item => item.word.toLowerCase());
-            if (matchingWords.includes(uClean)) {
-                return { status: "correct", posMatches: w.word.length };
-            }
-            const target = w.word.toLowerCase();
-            let posMatches = 0;
-            for (let i = 0; i < Math.min(target.length, uClean.length); i++) {
-                if (uClean[i] === target[i]) posMatches++;
-            }
-            // Partially correct ONLY if at least half of the letters match in their exact position (minimum 2 letters)
-            const minRequired = Math.max(2, Math.ceil(target.length * 0.5));
-            const status = (posMatches >= minRequired) ? "partial" : "wrong";
-            return { status, posMatches };
-        }
+        function evaluateSec2Attempt(w,userWord){
+ const u=reviewWord(userWord), accepted=reviewAlternatives(w), match=accepted.find(x=>reviewWord(x.word)===u);
+ const target=reviewWord(match?match.word:w.word), edits=reviewAlign([...target],[...u]), posMatches=edits.filter(x=>x.kind==='match').length;
+ return {status:match?'correct':posMatches>=Math.max(2,Math.ceil(target.length/2))?'partial':'wrong',posMatches,edits,match,accepted};
+}
 
         function submitSec2() {
             const w = getCurrentWord("sec2");
@@ -4447,112 +4298,10 @@ function renderSec1() {
             speakText(w.word, "en-GB");
         }
 
-        function renderSec2Feedback(w, userWord, statusOrBool) {
-            const evalRes = evaluateSec2Attempt(w, userWord);
-            const status = evalRes.status;
-            const box = document.getElementById("sec2-feedback-box");
-            box.classList.remove("hidden");
-
-            const target = w.word.toLowerCase();
-            const uClean = (userWord || "").toLowerCase();
-            const rightLetters = [];
-            const wrongLetters = [];
-
-            const maxL = Math.max(target.length, uClean.length);
-            for (let i = 0; i < maxL; i++) {
-                const tCh = target[i];
-                const uCh = uClean[i];
-                if (tCh && uCh && tCh === uCh) {
-                    rightLetters.push(`Letter #${i + 1} ("${tCh.toUpperCase()}")`);
-                } else if (tCh && !uCh) {
-                    wrongLetters.push(`Letter #${i + 1}: Missing "${tCh.toUpperCase()}" (needed in "${w.word}")`);
-                } else if (!tCh && uCh) {
-                    wrongLetters.push(`Letter #${i + 1}: Extra letter "${uCh.toUpperCase()}" not in "${w.word}"`);
-                } else {
-                    wrongLetters.push(`Letter #${i + 1}: You wrote "${uCh.toUpperCase()}" instead of "${tCh.toUpperCase()}"`);
-                }
-            }
-
-            const bannerCls = status === "correct"
-                ? "bg-emerald-950/40 border-emerald-500/50 text-emerald-300"
-                : (status === "partial"
-                    ? "bg-amber-950 border-amber-500/60 text-amber-300"
-                    : "bg-rose-950/40 border-rose-500/50 text-rose-300");
-
-            const iconCls = status === "correct"
-                ? "bg-emerald-500 text-slate-950 fa-check"
-                : (status === "partial"
-                    ? "bg-amber-500 text-slate-950 fa-circle-half-stroke"
-                    : "bg-rose-500 text-white keep-white-text fa-xmark");
-
-            const titleText = status === "correct"
-                ? "Correct English Spelling!"
-                : (status === "partial"
-                    ? `Partially Correct Spelling (${rightLetters.length} of ${target.length} Letters Right) — See Breakdown Below`
-                    : "Incorrect Spelling — See Breakdown Below");
-
-            let breakdownHtml = "";
-            if (status === "partial") {
-                breakdownHtml = `
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div class="p-3.5 rounded-xl bg-slate-950 border border-emerald-500/40 space-y-1">
-                            <div class="text-xs font-extrabold text-emerald-400"><i class="fa-solid fa-circle-check mr-1"></i> Why This Part is Right (ليه الجزء ده صح):</div>
-                            <p class="text-xs text-slate-200 leading-relaxed">
-                                You correctly matched <strong>${rightLetters.join(", ")}</strong> in the spelling of <strong>"${w.word}"</strong> (<span class="ipa-text">/${w.ipa}/</span>).
-                            </p>
-                        </div>
-                        <div class="p-3.5 rounded-xl bg-slate-950 border border-rose-500/40 space-y-1">
-                            <div class="text-xs font-extrabold text-rose-400"><i class="fa-solid fa-circle-xmark mr-1"></i> Why This Part is Wrong (ليه الجزء ده غلط):</div>
-                            <ul class="text-xs text-slate-200 space-y-1 list-disc list-inside">
-                                ${wrongLetters.map(wl => `<li>${wl}</li>`).join("")}
-                                <li class="text-amber-300">Note: <span class="ipa-text">/${w.ipa}/</span> (${w.tokens.length} sounds) is spelled <strong>"${w.word}"</strong> (${w.word.length} letters).</li>
-                            </ul>
-                        </div>
-                    </div>
-                `;
-            } else if (status === "wrong") {
-                breakdownHtml = `
-                    <div class="p-3.5 rounded-xl bg-slate-950 border border-rose-500/40 space-y-1">
-                        <div class="text-xs font-extrabold text-rose-400"><i class="fa-solid fa-circle-xmark mr-1"></i> Why Your Answer is Wrong (ليه الإجابة غلط):</div>
-                        <ul class="text-xs text-slate-200 space-y-1 list-disc list-inside">
-                            ${wrongLetters.map(wl => `<li>${wl}</li>`).join("")}
-                            <li class="text-amber-300">The transcription <span class="ipa-text">/${w.ipa}/</span> corresponds to the English word <strong>"${w.word}"</strong> (${w.arMeaning}).</li>
-                        </ul>
-                    </div>
-                `;
-            }
-
-            box.innerHTML = `
-                <div class="rounded-2xl border p-6 shadow-xl space-y-4 ${bannerCls}">
-                    <div class="flex flex-wrap items-center justify-between gap-4">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xl font-bold ${iconCls.split(' ').slice(0,2).join(' ')}">
-                                <i class="fa-solid ${iconCls.split(' ').slice(2).join(' ')}"></i>
-                            </div>
-                            <div>
-                                <h4 class="text-lg font-extrabold text-white">${titleText}</h4>
-                                <p class="text-xs text-slate-300">
-                                    IPA: <span class="ipa-text font-bold text-emerald-300">/${w.ipa}/</span> • Correct Word: <strong class="text-white text-base underline">${w.word}</strong> • Your Answer: <span class="font-bold">${userWord}</span>
-                                </p>
-                            </div>
-                        </div>
-                        <button onclick="navigateWord('sec2', 1)" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white keep-white-text text-xs font-extrabold flex items-center gap-1.5 shadow">
-                            Next Word <i class="fa-solid fa-arrow-right"></i>
-                        </button>
-                    </div>
-
-                    ${breakdownHtml}
-
-                    <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                            <span class="text-xs font-bold text-indigo-400 uppercase">${w.pos}</span>
-                            <p class="text-xs text-slate-300 mt-0.5">${w.enDef}</p>
-                        </div>
-                        <div dir="rtl" class="ar-text text-lg font-bold text-amber-300">${w.arMeaning}</div>
-                    </div>
-                </div>
-            `;
-        }
+        function renderSec2Feedback(w,userWord){
+ const r=evaluateSec2Attempt(w,userWord), target=r.match||w, errors=r.edits.filter(x=>x.kind!=='match');
+ reviewShow('sec2-feedback-box',r.status,'Spelling from IPA',userWord,target.word,`<p>${r.match&&target.word!==w.word?'Your word is an accepted homophone in this word bank. IPA alone may not distinguish different spellings.':r.status==='correct'?'Your spelling matches the transcription.':'Compare the spelling changes below. English letters and sounds do not always correspond one-to-one.'}</p>${reviewPronunciations(target)}<p>${reviewEsc(target.enDef||'')} <span dir="rtl" lang="ar">${reviewEsc(target.arMeaning||'')}</span></p>${errors.length?reviewRows(errors,false):''}${r.accepted.length>1?'<p>Accepted spellings in this bank: '+r.accepted.map(x=>reviewEsc(x.word)).join(', ')+'</p>':''}<details><summary>Sound breakdown</summary>${reviewRows(reviewTokens(target.ipa).map(t=>({kind:'match',t,u:t})),true)}</details>`,"navigateWord('sec2',1)");
+}
 
         /* =====================================================================
            9. NAVIGATION, BOOKMARKS, JUMP & RESET HELPERS
@@ -5316,150 +5065,17 @@ function renderSec1() {
             speakSec3Audio("en-GB");
         }
 
-        function renderSec3Feedback(ex, userSummary, statusOrBool, sel = {}) {
-            const evalRes = evaluateSec3Attempt(ex, sel);
-            const status = evalRes.status;
-            const box = document.getElementById("sec3-feedback-box");
-            box.classList.remove("hidden");
-            const c = L2_CONSONANTS[ex.sym] || L2_CONSONANTS["p"];
-
-            const rightReasons = [];
-            const wrongReasons = [];
-
-            if (ex.exType === "ex1") {
-                if (sel.place === ex.place) {
-                    rightReasons.push(`<strong>Place (${ex.place}): Correct!</strong> /${ex.sym}/ is ${PLACE_HOW_MAP[ex.place]}.`);
-                } else {
-                    wrongReasons.push(`<strong>Place (You chose ${sel.place}): Wrong</strong> because ${sel.place} sounds are ${PLACE_HOW_MAP[sel.place]}, whereas /${ex.sym}/ is <strong>${ex.place}</strong> (${PLACE_HOW_MAP[ex.place]}).`);
-                }
-                if (sel.manner === ex.manner) {
-                    rightReasons.push(`<strong>Manner (${ex.manner}): Correct!</strong> In /${ex.sym}/, ${MANNER_HOW_MAP[ex.manner]}.`);
-                } else {
-                    wrongReasons.push(`<strong>Manner (You chose ${sel.manner}): Wrong</strong> because in ${sel.manner} sounds ${MANNER_HOW_MAP[sel.manner]}, whereas /${ex.sym}/ is a <strong>${ex.manner}</strong> (${MANNER_HOW_MAP[ex.manner]}).`);
-                }
-                if (sel.voice === ex.voice) {
-                    rightReasons.push(`<strong>Voicing (${ex.voice}): Correct!</strong> /${ex.sym}/ is ${ex.voice.toLowerCase()} (${ex.voice === 'Voiced' ? 'vocal cords vibrate' : 'vocal cords do not vibrate'}).`);
-                } else {
-                    wrongReasons.push(`<strong>Voicing (You chose ${sel.voice}): Wrong</strong> because /${ex.sym}/ is <strong>${ex.voice}</strong> (${ex.voice === 'Voiced' ? 'vocal cords vibrate when you touch your throat' : 'no vocal cord vibration'}).`);
-                }
-            } else if (ex.exType === "ex5") {
-                const uC = L2_CONSONANTS[sel.sym];
-                if (sel.sym === ex.sym) {
-                    rightReasons.push(`<strong>IPA Symbol (/${ex.sym}/): Correct!</strong> The underlined letters in "${ex.audioWord}" produce the /${ex.sym}/ sound.`);
-                } else {
-                    wrongReasons.push(`<strong>IPA Symbol (You chose /${sel.sym}/): Wrong</strong> because /${sel.sym}/ is the sound in "${uC ? uC.ex : ''}", whereas the underlined sound in "${ex.audioWord}" is <strong>/${ex.sym}/</strong> (as in "${c.ex}").`);
-                }
-                if (sel.place === ex.place) {
-                    rightReasons.push(`<strong>Place (${ex.place}): Correct!</strong> /${ex.sym}/ is ${PLACE_HOW_MAP[ex.place]}.`);
-                } else {
-                    wrongReasons.push(`<strong>Place (You chose ${sel.place}): Wrong</strong> because ${sel.place} sounds are ${PLACE_HOW_MAP[sel.place]}, whereas /${ex.sym}/ is <strong>${ex.place}</strong> (${PLACE_HOW_MAP[ex.place]}).`);
-                }
-            } else if (ex.exType === "ex2") {
-                const uC = L2_CONSONANTS[sel.sym];
-                if (sel.sym === ex.sym) {
-                    rightReasons.push(`<strong>Symbol /${ex.sym}/: Correct!</strong> Matches ${c.voice.toLowerCase()} ${c.place.toLowerCase()} ${c.manner.toLowerCase()}.`);
-                } else {
-                    wrongReasons.push(`You chose <strong>/${sel.sym}/</strong> (${uC ? uC.voice.toLowerCase() + ' ' + uC.place.toLowerCase() + ' ' + uC.manner.toLowerCase() + ' as in "' + uC.ex + '"' : ''}), whereas the description asks for <strong>/${ex.sym}/</strong> (${c.voice.toLowerCase()} ${c.place.toLowerCase()} ${c.manner.toLowerCase()} as in "${c.ex}").`);
-                }
-            } else if (ex.exType === "ex3") {
-                if (sel.voice === ex.voice) {
-                    rightReasons.push(`<strong>${ex.voice}: Correct!</strong> ${c.how}`);
-                } else {
-                    wrongReasons.push(`You chose <strong>${sel.voice}</strong>, which is wrong because /${ex.sym}/ (as in "${c.ex}") is <strong>${ex.voice}</strong>: ${c.how}`);
-                }
-            } else if (ex.exType === "ex4") {
-                const uC = L2_CONSONANTS[sel.odd];
-                if (sel.odd === ex.odd) {
-                    rightReasons.push(`<strong>/${ex.odd}/ is the Odd One Out!</strong> ${ex.reason}`);
-                } else {
-                    wrongReasons.push(`You chose <strong>/${sel.odd}/</strong> (${uC ? uC.voice + ' ' + uC.place + ' ' + uC.manner : ''}), which belongs to the shared group! The odd one out is <strong>/${ex.odd}/</strong>: ${ex.reason}`);
-                }
-            }
-
-            const bannerCls = status === "correct"
-                ? "bg-emerald-950/40 border-emerald-500/50 text-emerald-300"
-                : (status === "partial"
-                    ? "bg-amber-950 border-amber-500/60 text-amber-300"
-                    : "bg-rose-950/40 border-rose-500/50 text-rose-300");
-
-            const iconCls = status === "correct"
-                ? "bg-emerald-500 text-slate-950 fa-check"
-                : (status === "partial"
-                    ? "bg-amber-500 text-slate-950 fa-circle-half-stroke"
-                    : "bg-rose-500 text-white keep-white-text fa-xmark");
-
-            const titleText = status === "correct"
-                ? "Spot-On! 100% Correct Consonants Answer!"
-                : (status === "partial"
-                    ? "Partially Correct! (إجابة صحيحة جزئياً) — See Which Part is Right & Which is Wrong"
-                    : "Incorrect — See Why Your Answer is Wrong Below");
-
-            let detailsGridHtml = "";
-            if (status === "partial") {
-                detailsGridHtml = `
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div class="p-4 rounded-xl bg-slate-950 border border-emerald-500/40 space-y-1.5">
-                            <div class="text-xs font-extrabold text-emerald-400 flex items-center gap-1.5">
-                                <i class="fa-solid fa-circle-check"></i> Why the Correct Part is Right (ليه الجزء ده صح):
-                            </div>
-                            <ul class="text-xs text-slate-200 space-y-1.5 list-disc list-inside">${rightReasons.map(r => `<li>${r}</li>`).join("")}</ul>
-                        </div>
-                        <div class="p-4 rounded-xl bg-slate-950 border border-rose-500/40 space-y-1.5">
-                            <div class="text-xs font-extrabold text-rose-400 flex items-center gap-1.5">
-                                <i class="fa-solid fa-circle-xmark"></i> Why the Other Part is Wrong (ليه الجزء ده غلط):
-                            </div>
-                            <ul class="text-xs text-slate-200 space-y-1.5 list-disc list-inside">${wrongReasons.map(w => `<li>${w}</li>`).join("")}</ul>
-                        </div>
-                    </div>
-                `;
-            } else if (status === "wrong") {
-                detailsGridHtml = `
-                    <div class="p-4 rounded-xl bg-slate-950 border border-rose-500/40 space-y-1.5">
-                        <div class="text-xs font-extrabold text-rose-400 flex items-center gap-1.5">
-                            <i class="fa-solid fa-circle-xmark"></i> Why Your Answer is Wrong (ليه الإجابة غلط):
-                        </div>
-                        <ul class="text-xs text-slate-200 space-y-1.5 list-disc list-inside">${wrongReasons.map(w => `<li>${w}</li>`).join("")}</ul>
-                    </div>
-                `;
-            } else if (status === "correct") {
-                detailsGridHtml = `
-                    <div class="p-4 rounded-xl bg-slate-950 border border-emerald-500/40 space-y-1.5">
-                        <div class="text-xs font-extrabold text-emerald-400 flex items-center gap-1.5">
-                            <i class="fa-solid fa-circle-check"></i> Why Your Answer is Correct:
-                        </div>
-                        <ul class="text-xs text-slate-200 space-y-1.5 list-disc list-inside">${rightReasons.map(r => `<li>${r}</li>`).join("")}</ul>
-                    </div>
-                `;
-            }
-
-            box.innerHTML = `
-                <div class="rounded-2xl border p-6 shadow-xl space-y-4 ${bannerCls}">
-                    <div class="flex flex-wrap items-center justify-between gap-4">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xl font-bold ${iconCls.split(' ').slice(0,2).join(' ')}">
-                                <i class="fa-solid ${iconCls.split(' ').slice(2).join(' ')}"></i>
-                            </div>
-                            <div>
-                                <h4 class="text-lg font-extrabold text-white">${titleText}</h4>
-                                <p class="text-xs text-slate-300">
-                                    Your Answer: <strong class="text-white">${userSummary}</strong> • Official Answer: <span class="ipa-text font-bold text-amber-300">/${ex.sym}/</span> (${c.voice} ${c.place} ${c.manner})
-                                </p>
-                            </div>
-                        </div>
-                        <button onclick="navigateSec3(1)" class="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white keep-white-text text-xs font-extrabold flex items-center gap-1.5 shadow">
-                            Next <i class="fa-solid fa-arrow-right"></i>
-                        </button>
-                    </div>
-
-                    ${detailsGridHtml}
-
-                    <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-wrap items-center justify-between gap-2">
-                        <span class="text-xs font-bold text-indigo-300">${ex.explanation}</span>
-                        <span dir="rtl" class="ar-text text-sm font-bold text-amber-300">${c.ar}</span>
-                    </div>
-                </div>
-            `;
-        }
+        function renderSec3Feedback(ex,userSummary,statusOrBool,sel={}){
+ const r=evaluateSec3Attempt(ex,sel), c=L2_CONSONANTS[ex.exType==='ex4'?ex.odd:ex.sym], rows=[];
+ const add=(label,u,t,why)=>rows.push(`<div class="review-edit ${u===t?'match':'replace'}"><strong>${reviewEsc(label)} · ${u===t?'Correct':'Review'}</strong><div>Your choice: ${reviewEsc(u||'—')} → ${reviewEsc(t)}</div><p>${reviewEsc(why||'')}</p></div>`);
+ if(['ex1','ex5'].includes(ex.exType))add('Place',sel.place,ex.place,PLACE_HOW_MAP[ex.place]);
+ if(ex.exType==='ex1')add('Manner',sel.manner,ex.manner,MANNER_HOW_MAP[ex.manner]);
+ if(['ex1','ex3'].includes(ex.exType))add('Voicing',sel.voice,ex.voice,ex.voice==='Voiced'?'The vocal folds vibrate.':'The vocal folds do not vibrate.');
+ if(['ex2','ex5'].includes(ex.exType))add('IPA symbol',sel.sym,ex.sym,c?.how);
+ if(ex.exType==='ex4')add('Odd one out',sel.odd,ex.odd,ex.reason);
+ const target=ex.exType==='ex1'?[ex.place,ex.manner,ex.voice].join(' · '):ex.exType==='ex5'?`/${ex.sym}/ · ${ex.place}`:ex.exType==='ex3'?ex.voice:`/${ex.exType==='ex4'?ex.odd:ex.sym}/`;
+ reviewShow('sec3-feedback-box',r.status,'Consonant analysis',r.userSummary,target,rows.join('')+(c?`<div class="review-note"><strong>/${reviewEsc(ex.exType==='ex4'?ex.odd:ex.sym)}/ · ${reviewEsc(c.ex)}</strong><p>${reviewEsc(c.how||'')}</p><p>${reviewEsc(c.voice)} · ${reviewEsc(c.place)} · ${reviewEsc(c.manner)}</p><p dir="rtl" lang="ar">${reviewEsc(c.ar||'')}</p></div>`:'')+`<p>${reviewEsc(ex.exType==='ex4'?ex.reason:ex.explanation)}</p>`, 'navigateSec3(1)');
+}
 
         function updateHeaderBadges() {
             const total = WORDS_DB.length;
@@ -5676,6 +5292,22 @@ function setupMobileReference(){
             setupStudio();
             switchTab(state.activeTab || "dashboard");
         });
-    </script>
+    
+function reviewEsc(x){return String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function reviewTokens(x){return tokenizeIPA(String(x||'').normalize('NFC').replace(/ɡ/g,'g').replace(/ɹ/g,'r').replace(/:/g,'ː'));}
+function reviewWord(x){return String(x||'').trim().toLowerCase().normalize('NFC').replace(/’/g,"'");}
+function reviewAlternatives(w){const key=reviewTokens(w.ipa).join('|');return WORDS_DB.filter(x=>reviewTokens(x.ipa).join('|')===key);}
+function reviewAlign(t,u){const n=t.length,m=u.length,d=Array.from({length:n+1},()=>Array(m+1).fill(0));for(let i=0;i<=n;i++)d[i][0]=i;for(let j=0;j<=m;j++)d[0][j]=j;for(let i=1;i<=n;i++)for(let j=1;j<=m;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(t[i-1]===u[j-1]?0:1));let i=n,j=m,r=[];while(i||j){if(i&&j&&d[i][j]===d[i-1][j-1]+(t[i-1]===u[j-1]?0:1)){r.push({kind:t[i-1]===u[j-1]?'match':'replace',t:t[--i],u:u[--j]});}else if(i&&d[i][j]===d[i-1][j]+1)r.push({kind:'missing',t:t[--i],u:''});else r.push({kind:'extra',t:'',u:u[--j]});}return r.reverse();}
+function reviewSound(t){const p=PHONEME_DATA[t];return p?`${p.desc||p.type||''}${p.ex?' Example: '+p.ex+'.':''}`:'';}
+function reviewRows(rows,ipa){const fmt=v=>v?reviewEsc(ipa?'/'+v+'/':v):'—';return `<div class="review-edits">${rows.map(x=>`<div class="review-edit ${x.kind}"><strong>${({match:'Matched',replace:'Replace',missing:'Missing',extra:'Extra'})[x.kind]} · ${fmt(x.u)} → ${fmt(x.t)}</strong>${ipa?`<p>${reviewEsc(x.kind==='extra'?'This sound is not needed here.':reviewSound(x.t))}</p>${x.kind==='replace'&&reviewSound(x.u)?'<p>Your sound: '+reviewEsc(reviewSound(x.u))+'</p>':''}`:''}</div>`).join('')}</div>`;}
+function reviewPronunciations(w){return `<div class="review-pron"><span>UK /${reviewEsc(w.ipa)}/</span><span>US /${reviewEsc(w.usIpa||w.ipa)}/</span><button type="button" data-review-word="${reviewEsc(w.word)}" data-review-lang="en-GB">🔊 UK</button><button type="button" data-review-word="${reviewEsc(w.word)}" data-review-lang="en-US">🔊 US</button></div>`;}
+function reviewShow(id,status,title,user,answer,body,next){const b=document.getElementById(id);b.classList.remove('hidden');b.innerHTML=`<article class="review-panel ${status}" aria-live="polite"><div class="review-head"><span>${status==='correct'?'✓ Correct':status==='partial'?'◐ Partially correct':'✕ Incorrect'}</span><small>${reviewEsc(title)}</small></div><div class="review-answers"><div><small>Your answer</small><strong>${reviewEsc(user)}</strong></div><div><small>Correct answer</small><strong>${reviewEsc(answer)}</strong></div></div><div class="review-body"><h4>Why?</h4>${body}</div><button class="review-next" onclick="${next}">Next question →</button></article>`;}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-review-word]');if(b)speakText(b.dataset.reviewWord,b.dataset.reviewLang);});
+// Repair original odd-one-out distractors without moving question IDs.
+LEC3_QUESTIONS.forEach(q=>{if(q.type==='Odd one out'&&!q.q.includes('/')){const a=q.q.trim().split(/\s+/);if(a.length===4&&a.includes(q.answer))q.options=a;}});
+const reviewOldLecRender=renderLec3;
+renderLec3=function(){reviewOldLecRender();const q=LEC3_QUESTIONS[state.lec3Index],saved=state.lec3Answers[state.lec3Index];if(!q||!saved)return;document.getElementById('lec3-status').textContent=saved.choice===q.answer?'Correct':'Incorrect';document.querySelectorAll('#lec3-options button').forEach((b,i)=>{const o=q.options[i];b.classList.toggle('review-option-correct',o===q.answer);b.classList.toggle('review-option-wrong',o===saved.choice&&o!==q.answer);});let why=q.why||'';const symbols=[...new Set((q.answer+' '+why).match(/\/[^/]+\//g)||[])];let extra=symbols.map(x=>reviewSound(x.slice(1,-1))).filter(Boolean).map(x=>'<p>'+reviewEsc(x)+'</p>').join('');if(q.type==='Odd one out'&&why.includes('other three belong')){const criterion=q.instruction.replace(/^Which sound differs in /,'').replace(/\?$/,'');extra+='<p>Compare the four sounds by '+reviewEsc(criterion)+', not by spelling.</p>';}const fb=document.getElementById('lec3-feedback');fb.className='';reviewShow('lec3-feedback',saved.choice===q.answer?'correct':'wrong',q.type,saved.choice,q.answer,`<p>${reviewEsc(why)}</p>${extra}<p class="review-note">${reviewEsc(q.extra||q.instruction)}</p>`,'navigateLec3(1)');};
+
+</script>
 </body>
 </html>
